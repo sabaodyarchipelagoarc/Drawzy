@@ -94,15 +94,20 @@ jobs:
           INPUT_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
           SERVICE: ${{ matrix.service }}
         run: |
+          # Rule 1: Manual version (workflow_dispatch)
           if [[ -n "$INPUT_VERSION" ]]; then
-            version=$INPUT_VERSION
-            image_tag=$(task utils:manual-version-tag -- "$INPUT_VERSION")
+            version="$INPUT_VERSION"
+            image_tag="${SERVICE}:${version}"
+
+          # Rule 2: Production (tag build)
           elif [[ "$ENVIRONMENT" == "production" ]]; then
-            version=$(task utils:generate-version -- "$SERVICE")
-            image_tag=$(task utils:generate-version-tag -- "$SERVICE")
+            version="${GITHUB_REF_NAME}"
+            image_tag="${SERVICE}:${version}"
+
+          # Rule 3: Other environments → auto version using git describe
           else
-            version=$(task utils:generate-extended-version -- "$SERVICE")
-            image_tag=$(task utils:generate-extended-version-tag -- "$SERVICE")
+            version=$(git describe --always --dirty --tags)
+            image_tag="${SERVICE}:${version}"
           fi
 
           echo "version=${version}" >> "$GITHUB_OUTPUT"
