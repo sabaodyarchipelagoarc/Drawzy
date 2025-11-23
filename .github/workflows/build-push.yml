@@ -132,5 +132,6 @@ jobs:
           file: ${{ steps.dockerfile.outputs.dockerfile }}
           tags: ${{ steps.image-tag.outputs.image_tag }}
           platforms: linux/amd64
+          push: true 
           cache-from: type=gha
           cache-to: type=gha,mode=max
