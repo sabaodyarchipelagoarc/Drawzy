@@ -125,15 +125,20 @@ jobs:
             exit 1
           fi
 
+      - name: Extract service name
+        id: service
+        run: echo "name=$(basename ${{ matrix.service }})" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Build & Push Docker Images
         uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e
         with:
-            context: .
-            file: ${{ steps.dockerfile.outputs.dockerfile }}
-            tags: |
-                    ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ steps.image-tag.outputs.version }}
-                    ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:latest
-            platforms: linux/amd64
-            push: true
-            cache-from: type=gha
-            cache-to: type=gha,mode=max
+          context: .
+          file: ${{ steps.dockerfile.outputs.dockerfile }}
+          tags: |
+            ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ steps.image-tag.outputs.version }}
+            ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:latest
+          platforms: linux/amd64
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

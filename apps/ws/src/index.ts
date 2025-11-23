@@ -518,6 +518,7 @@ wss.on("connection", function connection(ws, req) {
             conn.connectionId !== connectionId && conn.rooms.includes(roomId)
         );
 
+        
         // Delete empty rooms
         if (roomIsEmpty) {
           client.room
@@ -538,7 +539,7 @@ wss.on("connection", function connection(ws, req) {
     }
 
 
-    
+
     // Remove the connection from our connections array
     const index = connections.findIndex(
       (conn) => conn.connectionId === connectionId
