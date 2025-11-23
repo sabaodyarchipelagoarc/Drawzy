@@ -126,12 +126,14 @@ jobs:
           fi
 
       - name: Build & Push Docker Images
-        uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
+        uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e
         with:
-          context: .
-          file: ${{ steps.dockerfile.outputs.dockerfile }}
-          tags: ${{ steps.image-tag.outputs.image_tag }}
-          platforms: linux/amd64
-          push: true 
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            context: .
+            file: ${{ steps.dockerfile.outputs.dockerfile }}
+            tags: |
+                ${{ secrets.DOCKERHUB_USERNAME }}/drawzy:${{ github.sha }}
+                ${{ secrets.DOCKERHUB_USERNAME }}/drawzy:latest
+            platforms: linux/amd64
+            push: true
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
