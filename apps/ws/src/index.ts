@@ -77,6 +77,7 @@ wss.on("connection", function connection(ws, req) {
     return;
   }
 
+  
   const connectionId = generateConnectionId();
   const newConnection: Connection = {
     connectionId,

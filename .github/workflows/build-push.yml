@@ -131,8 +131,8 @@ jobs:
             context: .
             file: ${{ steps.dockerfile.outputs.dockerfile }}
             tags: |
-                ${{ vars.DOCKERHUB_USERNAME }}/drawzy:${{ github.sha }}
-                ${{ vars.DOCKERHUB_USERNAME }}/drawzy:latest
+                    ${{ vars.DOCKERHUB_USERNAME }}/$(basename ${{ matrix.service }}):${{ steps.image-tag.outputs.version }}
+                    ${{ vars.DOCKERHUB_USERNAME }}/$(basename ${{ matrix.service }}):latest
             platforms: linux/amd64
             push: true
             cache-from: type=gha
