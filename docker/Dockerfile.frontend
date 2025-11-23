@@ -16,7 +16,7 @@ COPY ./package.json ./package.json
 COPY ./pnpm-lock.yaml ./pnpm-lock.yaml
 COPY ./pnpm-workspace.yaml ./pnpm-workspace.yaml
 COPY ./turbo.json ./turbo.json
-COPY ./apps/Drawzy ./apps/Drawzy
+COPY ./apps/drawzy ./apps/drawzy
 
 # Install global Prisma CLI
 RUN npm install -g prisma@6.5.0
@@ -40,7 +40,7 @@ ENV JWT_SECRET=${JWT_SECRET}
 ENV NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
 
 # Create .env.local for Next.js
-WORKDIR /usr/src/app/apps/Drawzy
+WORKDIR /usr/src/app/apps/drawzy
 RUN echo "JWT_SECRET=$JWT_SECRET" > .env.local
 RUN echo "DATABASE_URL=$DATABASE_URL" >> .env.local
 RUN echo "NEXTAUTH_SECRET=${NEXTAUTH_SECRET}" >> .env.local
@@ -65,4 +65,4 @@ RUN DATABASE_URL=${DATABASE_URL} JWT_SECRET=${JWT_SECRET} pnpm run build
 EXPOSE 3000
 
 # Start the collabydraw application
-CMD ["pnpm", "run", "start:Drawzy"]
+CMD ["pnpm", "run", "start:drawzy"]
