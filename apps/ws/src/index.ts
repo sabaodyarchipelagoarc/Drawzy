@@ -77,7 +77,7 @@ wss.on("connection", function connection(ws, req) {
     return;
   }
 
-  
+
   const connectionId = generateConnectionId();
   const newConnection: Connection = {
     connectionId,
@@ -537,6 +537,8 @@ wss.on("connection", function connection(ws, req) {
       });
     }
 
+
+    
     // Remove the connection from our connections array
     const index = connections.findIndex(
       (conn) => conn.connectionId === connectionId

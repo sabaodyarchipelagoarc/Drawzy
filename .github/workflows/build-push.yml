@@ -131,8 +131,8 @@ jobs:
             context: .
             file: ${{ steps.dockerfile.outputs.dockerfile }}
             tags: |
-                    ${{ vars.DOCKERHUB_USERNAME }}/$(basename ${{ matrix.service }}):${{ steps.image-tag.outputs.version }}
-                    ${{ vars.DOCKERHUB_USERNAME }}/$(basename ${{ matrix.service }}):latest
+                    ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ steps.image-tag.outputs.version }}
+                    ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:latest
             platforms: linux/amd64
             push: true
             cache-from: type=gha
