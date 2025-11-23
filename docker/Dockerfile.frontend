@@ -22,7 +22,8 @@ COPY ./apps/drawzy ./apps/drawzy
 RUN npm install -g prisma@6.5.0
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
+
 
 # Generate database
 # RUN pnpm run db:generate
