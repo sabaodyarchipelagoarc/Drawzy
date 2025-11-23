@@ -15,7 +15,7 @@ on:
         type: choice
         required: true
         options:
-          - apps/Drawzy
+          - apps/drawzy
           - apps/ws
       version:
         description: "Version/tag to use (optional; defaults generating with git describe)"
@@ -116,7 +116,7 @@ jobs:
       - name: Select Dockerfile
         id: dockerfile
         run: |
-          if [[ "${{ matrix.service }}" == "apps/Drawzy" ]]; then
+          if [[ "${{ matrix.service }}" == "apps/drawzy" ]]; then
             echo "dockerfile=docker/Dockerfile.frontend" >> "$GITHUB_OUTPUT"
           elif [[ "${{ matrix.service }}" == "apps/ws" ]]; then
             echo "dockerfile=docker/Dockerfile.websocket" >> "$GITHUB_OUTPUT"
