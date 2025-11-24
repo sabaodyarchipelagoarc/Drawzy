@@ -23,6 +23,16 @@ on:
         type: string
 
 jobs:
+  security:
+    runs-on: ubutnu-24.04
+    steps:
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+      - name: Run Synk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
   filter:
     runs-on: ubuntu-24.04
     outputs:
