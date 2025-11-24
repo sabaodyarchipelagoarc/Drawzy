@@ -35,6 +35,7 @@ jobs:
           args: --severity-threshold=high
   filter:
     runs-on: ubuntu-24.04
+    needs: security
     outputs:
       services: ${{ steps.set-output.outputs.services }}
       environment: ${{ steps.set-output.outputs.environment }}
@@ -71,7 +72,9 @@ jobs:
   build-push-container-images:
     runs-on: ubuntu-24.04
     if: ${{ needs.filter.outputs.services != '[]' && needs.filter.outputs.services != '' }}
-    needs: filter
+    needs: 
+      - filter
+      - security
     strategy:
       matrix:
         service: ${{ fromJson(needs.filter.outputs.services) }}
