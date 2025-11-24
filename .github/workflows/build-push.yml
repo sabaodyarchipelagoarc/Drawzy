@@ -57,112 +57,129 @@ jobs:
                 echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
                 echo 'environment=staging' >> "$GITHUB_OUTPUT"
             fi
-
   build-push-container-images:
-      runs-on: ubuntu-24.04
-      if: ${{ needs.filter.outputs.services != '[]' && needs.filter.outputs.services != '' }}
-      needs: 
-        - filter
-      strategy:
-        matrix:
-          service: ${{ fromJson(needs.filter.outputs.services) }}
-        fail-fast: false
+    runs-on: ubuntu-24.04
+    if: ${{ needs.filter.outputs.services != '[]' && needs.filter.outputs.services != '' }}
+    needs: 
+      - filter
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.filter.outputs.services) }}
+      fail-fast: false
 
-      steps:
-        - name: Checkout Code
-          uses: actions/checkout@v5
-          with:
-              # Setting fetch-depth: 0 ensure tags are fetched (so git describe works properly)
-            fetch-depth: 0
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-        - name: Login to Docker Hub
-          uses: docker/login-action@v3
-          with:
-            username: ${{ vars.DOCKERHUB_USERNAME }}
-            password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-        - name: Set up QEMU
-          uses: docker/setup-qemu-action@05340d1c670183e7caabdb33ae9f1c80fae3b0c2 # v3.6.0
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@05340d1c670183e7caabdb33ae9f1c80fae3b0c2
 
-        - name: Set up Docker Buildx
-          uses: docker/setup-buildx-action@1583c0f09d26c58c59d25b0eef29792b7ce99d9a # v3.11.1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@1583c0f09d26c58c59d25b0eef29792b7ce99d9a
 
-        - name: Compute image tag
-          id: image-tag
-          working-directory: ${{ matrix.service }}
-          env:
-            ENVIRONMENT: ${{ needs.filter.outputs.environment }}
-            INPUT_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
-            SERVICE: ${{ matrix.service }}
-          run: |
-            # Rule 1: Manual version (workflow_dispatch)
-            if [[ -n "$INPUT_VERSION" ]]; then
-              version="$INPUT_VERSION"
-              image_tag="${SERVICE}:${version}"
+      # -------------------------------
+      # SELECT DOCKERFILE (must be first)
+      # -------------------------------
+      - name: Select Dockerfile
+        id: dockerfile
+        run: |
+          if [[ "${{ matrix.service }}" == "apps/drawzy" ]]; then
+            echo "dockerfile=docker/Dockerfile.frontend" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ matrix.service }}" == "apps/ws" ]]; then
+            echo "dockerfile=docker/Dockerfile.websocket" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unknown service: ${{ matrix.service }}"
+            exit 1
+          fi
 
-            # Rule 2: Production (tag build)
-            elif [[ "$ENVIRONMENT" == "production" ]]; then
-              version="${GITHUB_REF_NAME}"
-              image_tag="${SERVICE}:${version}"
+      # ------------------------------------
+      # LINT DOCKERFILE (now the path exists)
+      # ------------------------------------
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ steps.dockerfile.outputs.dockerfile }}
 
-            # Rule 3: Other environments → auto version using git describe
-            else
-              version=$(git describe --always --dirty --tags)
-              image_tag="${SERVICE}:${version}"
-            fi
+      # ------------------------------------
+      # COMPUTE IMAGE TAG
+      # ------------------------------------
+      - name: Compute image tag
+        id: image-tag
+        working-directory: ${{ matrix.service }}
+        env:
+          ENVIRONMENT: ${{ needs.filter.outputs.environment }}
+          INPUT_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            version="$INPUT_VERSION"
+            image_tag="${SERVICE}:${version}"
+          elif [[ "$ENVIRONMENT" == "production" ]]; then
+            version="${GITHUB_REF_NAME}"
+            image_tag="${SERVICE}:${version}"
+          else
+            version=$(git describe --always --dirty --tags)
+            image_tag="${SERVICE}:${version}"
+          fi
 
-            echo "version=${version}" >> "$GITHUB_OUTPUT"
-            echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
-        - name: Lint Dockerfile
-          uses:  hadolint/hadolint-action@4b5806eb9c6bee4954fc0e0cc3ad6175fc9782c1
-          with:
-            dockerfile: ${{ steps.dockerfile.outputs.dockerfile }}
-        - name: Build Docker Image
-          uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e
-          with:
-            context: .
-            file: ${{ steps.dockerfile.outputs.dockerfile }}
-            tags: |
-              ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ github.sha }}
-            load: true         # load image locally for scanning
-            platforms: linux/amd64
-            cache-from: type=gha
-            cache-to: type=gha,mode=max
-        - name: Scan Docker Image with Trivy
-          uses: aquasecurity/trivy-action@0.28.0
-          with:
-            image-ref: 'docker.io/${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ github.sha }}'
-            format: 'table'
-            exit-code: '1'
-            ignore-unfixed: true
-            vuln-type: 'os,library'
-            severity: 'CRITICAL,HIGH'
-        - name: Select Dockerfile
-          id: dockerfile
-          run: |
-            if [[ "${{ matrix.service }}" == "apps/drawzy" ]]; then
-              echo "dockerfile=docker/Dockerfile.frontend" >> "$GITHUB_OUTPUT"
-            elif [[ "${{ matrix.service }}" == "apps/ws" ]]; then
-              echo "dockerfile=docker/Dockerfile.websocket" >> "$GITHUB_OUTPUT"
-            else
-              echo "Unknown service: ${{ matrix.service }}"
-              exit 1
-            fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
 
-        - name: Extract service name
-          id: service
-          run: echo "name=$(basename ${{ matrix.service }})" >> $GITHUB_OUTPUT
-          shell: bash
+      # ------------------------------------
+      # LOCAL BUILD FOR TRIVY SCAN
+      # ------------------------------------
+      - name: Build Docker Image (for scanning)
+        uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e
+        with:
+          context: .
+          file: ${{ steps.dockerfile.outputs.dockerfile }}
+          tags: |
+            ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
+          load: true
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-        - name: Build & Push Docker Images
-          uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e
-          with:
-            context: .
-            file: ${{ steps.dockerfile.outputs.dockerfile }}
-            tags: |
-              ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ steps.image-tag.outputs.version }}
-              ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:latest
-            platforms: linux/amd64
-            push: true
-            cache-from: type=gha
-            cache-to: type=gha,mode=max
+      # ------------------------------------
+      # TRIVY SCAN
+      # ------------------------------------
+      - name: Scan Docker Image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
+          format: table
+          exit-code: 1
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # ------------------------------------
+      # EXTRACT SERVICE NAME (for tagging)
+      # ------------------------------------
+      - name: Extract service name
+        id: service
+        run: echo "name=$(basename ${{ matrix.service }})" >> $GITHUB_OUTPUT
+
+      # ------------------------------------
+      # FINAL BUILD & PUSH
+      # ------------------------------------
+      - name: Build & Push Docker Images
+        uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e
+        with:
+          context: .
+          file: ${{ steps.dockerfile.outputs.dockerfile }}
+          tags: |
+            ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ steps.image-tag.outputs.version }}
+            ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:latest
+          platforms: linux/amd64
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
