@@ -90,7 +90,7 @@ jobs:
     if: ${{ needs.filter.outputs.services != '[]' && needs.filter.outputs.services != '' }}
     needs: 
       - filter
-      - security
+      - lint
     strategy:
       matrix:
         service: ${{ fromJson(needs.filter.outputs.services) }}
