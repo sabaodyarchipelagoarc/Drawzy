@@ -24,7 +24,7 @@ on:
         required: false
         type: string
 env:
-  DOCKER_REGISTERY: docker.io
+  DOCKER_REGISTRY: docker.io
   IMAGE_NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
   VERSION_FILE: .github/version.txt
 
