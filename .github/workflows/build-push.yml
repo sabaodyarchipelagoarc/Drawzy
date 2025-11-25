@@ -265,8 +265,8 @@ jobs:
   push-docker-images:
     runs-on: ubuntu-24.04
     needs:
-      - bump-version
       - build-docker-images
+      - bump-version
     strategy:
       matrix:
         service: ${{ fromJson(needs.detect-changes.outputs.services) }}
@@ -292,7 +292,8 @@ jobs:
         shell: bash
         run: |
           ENV="${{ needs.detect-changes.outputs.environment }}"
-          SERVICE_NAME=$(basename ${{ matrix.service }})
+          SERVICE_PATH="${{ matrix.service }}"
+          SERVICE_NAME="$(basename "$SERVICE_PATH")"
           if [[ "$ENV" == "development" ]]; then
             TAG1="dev-${GITHUB_SHA::8}"
             TAG2="dev-latest"
@@ -310,9 +311,7 @@ jobs:
               TAG2="latest"
             fi
           fi
-
-          echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/$(basename ${{ matrix.service }}):${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/$(basename ${{ matrix.service }}):${TAG2}" >> "$GITHUB_OUTPUT"
-
+          echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG2}" >> "$GITHUB_OUTPUT"
 
       - name: Build & Push tags
         uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
