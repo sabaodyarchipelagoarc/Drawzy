@@ -223,7 +223,7 @@ name: CICD
 on:
   push:
     branches:
-      - dev
+      - main
       - stage
       - prod
     paths:
@@ -297,7 +297,7 @@ jobs:
             exit 0
           fi
 
-          if [[ "$REF_NAME" == "dev" ]]; then
+          if [[ "$REF_NAME" == "main" ]]; then
             echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
             echo 'environment=development' >> "$GITHUB_OUTPUT"
             exit 0
