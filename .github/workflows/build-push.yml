@@ -105,6 +105,7 @@ jobs:
           else
             echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
             echo 'environment=staging' >> "$GITHUB_OUTPUT"
+          fi
   #Build & Push Docker Images
   build-push-container-images:
     runs-on: ubuntu-24.04
