@@ -9,8 +9,6 @@ if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is ABSOLUTELY REQUIRED and not set");
 }
 
-
-
 const JWT_SECRET = process.env.JWT_SECRET;
 
 declare module "http" {
