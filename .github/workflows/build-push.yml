@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      - stage
+      - prod
     paths:
       - apps/**
     tags:
@@ -45,12 +47,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
-        with:
-          fetch-depth: 0
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         with:
-          cmd: detect --source . --no-banner --redact || true
+          args: detect --source . --no-banner --redact || true
   #Security Scan
   codeql:
     runs-on: ubuntu-24.04
