@@ -267,8 +267,6 @@ jobs:
     needs:
     - detect-changes
     - build-docker-images
-    - bump-version
-
     strategy:
       matrix:
         service: ${{ fromJson(needs.detect-changes.outputs.services) }}
@@ -289,42 +287,56 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@1583c0f09d26c58c59d25b0eef29792b7ce99d9a # v3.11.1
 
-      - name: Compute tags
+      # ------------------------------
+# Compute dev tags
+# ------------------------------
+      - name: Compute dev tags
+        id: dev-tags
+        if: ${{ needs.detect-changes.outputs.environment == 'development' }}
+        shell: bash
+        run: |
+          SERVICE_NAME=$(basename "${{ matrix.service }}")
+          TAG1="dev-${GITHUB_SHA::8}"
+          TAG2="dev-latest"
+          echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG2}" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------
+      # Compute staging / production tags
+      # ------------------------------
+      - name: Compute stage/prod tags
         id: tags
+        if: ${{ needs.detect-changes.outputs.environment != 'development' }}
         shell: bash
         run: |
           ENV="${{ needs.detect-changes.outputs.environment }}"
-          SERVICE_PATH="${{ matrix.service }}"
-          SERVICE_NAME="$(basename "$SERVICE_PATH")"
-          if [[ "$ENV" == "development" ]]; then
-            TAG1="dev-${GITHUB_SHA::8}"
-            TAG2="dev-latest"
-          else
-            SEMVER="${{ needs.bump-version.outputs.semver || '0.0.0' }}"
-            if [[ "${GITHUB_REF_NAME}" == v* ]]; then
-              # if tag push, strip leading v
-              SEMVER="${GITHUB_REF_NAME#v}"
-            fi
-            if [[ "$ENV" == "staging" ]]; then
-              TAG1="staging-${SEMVER}"
-              TAG2="staging-latest"
-            else
-              TAG1="${SEMVER}"
-              TAG2="latest"
-            fi
+          SERVICE_NAME=$(basename "${{ matrix.service }}")
+          SEMVER="${{ needs.bump-version.outputs.semver }}"
+          
+          if [[ -z "$SEMVER" ]]; then
+            SEMVER="0.0.0"
           fi
+
+          if [[ "$ENV" == "staging" ]]; then
+            TAG1="staging-${SEMVER}"
+            TAG2="staging-latest"
+          else
+            TAG1="${SEMVER}"
+            TAG2="latest"
+          fi
+
           echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG2}" >> "$GITHUB_OUTPUT"
 
-      - name: Build & Push tags
-        uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
+      # ------------------------------
+      # Build & Push Docker Image
+      # ------------------------------
+      - name: Build & Push Image
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.dockerfile }}
-          tags: ${{ steps.tags.outputs.tags }}
-          platforms: linux/amd64
           push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          tags: ${{ steps.dev-tags.outputs.tags != '' && steps.dev-tags.outputs.tags || steps.tags.outputs.tags }}
 
   # -------------------------
   # 8. deploy-to-development (placeholder)
