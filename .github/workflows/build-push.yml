@@ -23,13 +23,80 @@ on:
         description: "Version/tag to use (optional; defaults generating with git describe)"
         required: false
         type: string
-
+env:
+  DOCKER_REGISTRY: docker.io
+  IMAGE_NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
+  VERSION_FILE: .github/version.txt
 
 jobs:
-
-  #Lint Code
-  lint:
+  detect-changes:
     runs-on: ubuntu-24.04
+    outputs:
+      services: ${{ steps.set-output.outputs.services }}
+      environment: ${{ steps.set-output.outputs.environment }}
+      ref_name: ${{ steps.set-output.outputs.ref_name }}
+      ref_type: ${{ steps.set-output.outputs.ref_type }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Paths Changes Filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: .github/utils/file-filters.yaml
+
+      - name: Determine environment & services
+        id: set-output
+        shell: bash
+        run: |
+          EVENT="${GITHUB_EVENT_NAME}"
+          REF_TYPE="${GITHUB_REF_TYPE}"
+          REF_NAME="${GITHUB_REF_NAME}"
+          echo "ref_type=${REF_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "ref_name=${REF_NAME}" >> "$GITHUB_OUTPUT"
+
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            echo 'services=["${{ inputs.service }}"]' >> "$GITHUB_OUTPUT"
+            echo 'environment=development' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$REF_TYPE" == "tag" ]]; then
+            # tag push => production release
+            echo "services=[\"${REF_NAME%%@*}\"]" >> "$GITHUB_OUTPUT"
+            echo "environment=production" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$REF_NAME" == "dev" ]]; then
+            echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
+            echo 'environment=development' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$REF_NAME" == "stage" ]]; then
+            echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
+            echo 'environment=staging' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$REF_NAME" == "prod" ]]; then
+            echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
+            echo 'environment=production' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # default to development
+          echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
+          echo 'environment=development' >> "$GITHUB_OUTPUT"
+  #Lint Code
+  code-quality-checks:
+    runs-on: ubuntu-24.04
+    needs: detect-changes
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
       - name: Setup Node
@@ -65,6 +132,11 @@ jobs:
       matrix:
         language: ['javascript']
     steps:
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source . --no-banner --redact || true
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -74,75 +146,23 @@ jobs:
         uses: github/codeql-action/autobuild@v3
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
-  #Filter Changed Services
-  filter:
+  build-docker-images:
     runs-on: ubuntu-24.04
-    outputs:
-      services: ${{ steps.set-output.outputs.services }}
-      environment: ${{ steps.set-output.outputs.environment }}
-
-    steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
-        if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main' }}
-
-      - name: Paths Changes Filter
-        id: filter
-        uses: dorny/paths-filter@v3
-        if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main' }}
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          filters: .github/utils/file-filters.yaml
-
-      - name: Set Output
-        id: set-output
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo 'services=["${{ inputs.service }}"]' >> "$GITHUB_OUTPUT"
-            echo 'environment=development' >> "$GITHUB_OUTPUT"
-
-          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
-            tag="${GITHUB_REF_NAME}"
-            svc="${tag%%@*}"
-            echo "services=[\"$svc\"]" >> "$GITHUB_OUTPUT"
-            echo 'environment=production' >> "$GITHUB_OUTPUT"
-
-          else
-            echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
-            echo 'environment=staging' >> "$GITHUB_OUTPUT"
-          fi
-  #Build & Push Docker Images
-  build-push-container-images:
-    runs-on: ubuntu-24.04
-    needs:
-      - filter
-      - lint
+    needs: 
+      - detect-changes
+      - code-quality-checks
       - secret-scan
-      - codeql
-
-    if: ${{ needs.filter.outputs.services != '[]' && needs.filter.outputs.services != '' }}
-
     strategy:
       matrix:
-        service: ${{ fromJson(needs.filter.outputs.services) }}
-      fail-fast: false
-
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    outputs:
+      image_ref: ${{ steps.set-image.outputs.image_ref }}
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
         with:
           fetch-depth: 0
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
-        with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@05340d1c670183e7caabdb33ae9f1c80fae3b0c2 # v3.6.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@1583c0f09d26c58c59d25b0eef29792b7ce99d9a # v3.11.1
       - name: Select Dockerfile
         id: dockerfile
         run: |
@@ -151,65 +171,212 @@ jobs:
           elif [[ "${{ matrix.service }}" == "apps/ws" ]]; then
             echo "dockerfile=docker/Dockerfile.websocket" >> "$GITHUB_OUTPUT"
           else
-            echo "Unknown service: ${{ matrix.service }}"
-            exit 1
+            echo "dockerfile=docker/Dockerfile" >> "$GITHUB_OUTPUT"
           fi
+
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ${{ steps.dockerfile.outputs.dockerfile }}
         continue-on-error: true
-      - name: Compute image tag
-        id: image-tag
-        working-directory: ${{ matrix.service }}
-        env:
-          ENVIRONMENT: ${{ needs.filter.outputs.environment }}
-          INPUT_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
-          SERVICE: ${{ matrix.service }}
-        run: |
-          if [[ -n "$INPUT_VERSION" ]]; then
-            version="$INPUT_VERSION"
-            image_tag="${SERVICE}:${version}"
-          elif [[ "$ENVIRONMENT" == "production" ]]; then
-            version="${GITHUB_REF_NAME}"
-            image_tag="${SERVICE}:${version}"
-          else
-            version=$(git describe --always --dirty --tags)
-            image_tag="${SERVICE}:${version}"
-          fi
 
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
-      - name: Build Docker Image (for scanning)
+      - name: Login (for caching if needed)
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@05340d1c670183e7caabdb33ae9f1c80fae3b0c2 # v3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@1583c0f09d26c58c59d25b0eef29792b7ce99d9a # v3.11.1
+      - name: Extract service name
+        id: svc
+        shell: bash
+        run: |
+          echo "name=$(basename '${{ matrix.service }}')" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image (local for scan)
+        id: build-local
         uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.dockerfile }}
-          tags: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
+          tags: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ steps.svc.outputs.name }}:${{ github.sha }}
           load: true
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Scan Docker Image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+
+      - name: Set image ref output
+        id: set-image
+        run: |
+          echo "image_ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ steps.svc.outputs.name }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+  # -------------------------
+  # 6. bump-version
+  # Only runs for stage/prod (or if a tag push - tag is used)
+  # -------------------------
+  bump-version:
+    runs-on: ubuntu-24.04
+    needs: build-docker-images
+    if: ${{ needs.detect-changes.outputs.environment != 'development' }}
+    outputs:
+      semver: ${{ steps.set-ver.outputs.semver }}
+    steps:
+      - name: Checkout (with tags)
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
         with:
-          image-ref: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
-          format: table
-          exit-code: 0
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-      - name: Extract service name
-        id: service
-        run: echo "name=$(basename ${{ matrix.service }})" >> $GITHUB_OUTPUT
-      - name: Build & Push Docker Images
-        uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine semver (from tag or bump)
+        id: set-ver
+        shell: bash
+        run: |
+          # If this run came from a tag (vX.Y.Z) use that semver
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            SEMVER="${TAG#v}"
+            echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # If inputs.version passed via workflow_dispatch, use it
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            SEMVER="${{ github.event.inputs.version }}"
+            echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Else, read .github/version.txt and bump patch
+          VF="${{ env.VERSION_FILE }}"
+          if [ ! -f "$VF" ]; then
+            echo "0.0.0" > "$VF"
+          fi
+          OLD=$(cat "$VF" | tr -d '[:space:]')
+          MAJOR=$(echo $OLD | cut -d. -f1)
+          MINOR=$(echo $OLD | cut -d. -f2)
+          PATCH=$(echo $OLD | cut -d. -f3)
+          PATCH=$((PATCH + 1))
+          NEW="${MAJOR}.${MINOR}.${PATCH}"
+          echo "$NEW" > "$VF"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$VF"
+          git commit -m "ci: bump version to $NEW" || true
+          git push origin HEAD:${GITHUB_REF_NAME} || true
+          echo "semver=${NEW}" >> "$GITHUB_OUTPUT"
+
+  # -------------------------
+  # 7. push-docker-images
+  # Tag and push images according to environment (dev/stage/prod)
+  # -------------------------
+  push-docker-images:
+    runs-on: ubuntu-24.04
+    needs:
+      - detect-changes
+      - build-docker-images
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Select Dockerfile
+      - name: Select Dockerfile
+        id: dockerfile
+        run: |
+          if [[ "${{ matrix.service }}" == "apps/drawzy" ]]; then
+            echo "dockerfile=docker/Dockerfile.frontend" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ matrix.service }}" == "apps/ws" ]]; then
+            echo "dockerfile=docker/Dockerfile.websocket" >> "$GITHUB_OUTPUT"
+          else
+            echo "dockerfile=docker/Dockerfile" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Compute dev tags
+      - name: Compute dev tags
+        id: dev-tags
+        if: ${{ needs.detect-changes.outputs.environment == 'development' }}
+        run: |
+          SERVICE_NAME=$(basename "${{ matrix.service }}")
+          TAG1="dev-${GITHUB_SHA::8}"
+          TAG2="dev-latest"
+          echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG2}" >> "$GITHUB_OUTPUT"
+
+      # Compute stage/prod tags
+      - name: Compute stage/prod tags
+        id: tags
+        if: ${{ needs.detect-changes.outputs.environment != 'development' }}
+        run: |
+          SERVICE_NAME=$(basename "${{ matrix.service }}")
+          SEMVER="${{ needs.bump-version.outputs.semver || '0.0.0' }}"
+          ENV="${{ needs.detect-changes.outputs.environment }}"
+
+          if [[ "$ENV" == "staging" ]]; then
+            TAG1="staging-${SEMVER}"
+            TAG2="staging-latest"
+          else
+            TAG1="${SEMVER}"
+            TAG2="latest"
+          fi
+
+          echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG2}" >> "$GITHUB_OUTPUT"
+
+      # Build & Push Image
+      - name: Build & Push Image
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.dockerfile }}
-          tags: |
-            ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ steps.image-tag.outputs.version }}
-          platforms: linux/amd64
           push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          tags: ${{ steps.dev-tags.outputs.tags || steps.tags.outputs.tags }}
+
+  # -------------------------
+  # 8. deploy-to-development (placeholder)
+  # -------------------------
+  deploy-to-development:
+    runs-on: ubuntu-24.04
+    needs: push-docker-images
+    if: ${{ needs.detect-changes.outputs.environment == 'development' }}
+    steps:
+      - name: Notify deploy (placeholder)
+        run: echo "Deploy to development would run here."
+
+  # -------------------------
+  # 9. deploy-to-production (placeholder)
+  # -------------------------
+  deploy-to-production:
+    runs-on: ubuntu-24.04
+    needs: push-docker-images
+    if: ${{ needs.detect-changes.outputs.environment == 'production' }}
+    steps:
+      - name: Notify deploy (placeholder)
+        run: echo "Deploy to production would run here."
+
+  # -------------------------
+  # 10. notify-team (Slack placeholder)
+  # -------------------------
+  notify-team:
+    runs-on: ubuntu-24.04
+    needs: [deploy-to-development, deploy-to-production]
+    steps:
+      - name: Notify (placeholder)
+        run: echo "Send Slack/Teams notification here."
