@@ -265,8 +265,10 @@ jobs:
   push-docker-images:
     runs-on: ubuntu-24.04
     needs:
-      - build-docker-images
-      - bump-version
+    - detect-changes
+    - build-docker-images
+    - bump-version
+
     strategy:
       matrix:
         service: ${{ fromJson(needs.detect-changes.outputs.services) }}
@@ -298,7 +300,7 @@ jobs:
             TAG1="dev-${GITHUB_SHA::8}"
             TAG2="dev-latest"
           else
-            SEMVER="${{ needs.bump-version.outputs.semver }}"
+            SEMVER="${{ needs.bump-version.outputs.semver || '0.0.0' }}"
             if [[ "${GITHUB_REF_NAME}" == v* ]]; then
               # if tag push, strip leading v
               SEMVER="${GITHUB_REF_NAME#v}"
@@ -317,7 +319,7 @@ jobs:
         uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
         with:
           context: .
-          file: ${{ steps.build-docker-images.outputs.file || steps.dockerfile.outputs.dockerfile }}
+          file: ${{ steps.dockerfile.outputs.dockerfile }}
           tags: ${{ steps.tags.outputs.tags }}
           platforms: linux/amd64
           push: true
