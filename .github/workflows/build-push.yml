@@ -186,7 +186,7 @@ jobs:
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.dockerfile }}
-          tags: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.service }}:${{ github.sha }}
+          tags: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/$(basename ${{ matrix.service }}):${{ github.sha }}
           load: true
           platforms: linux/amd64
           cache-from: type=gha
@@ -195,7 +195,7 @@ jobs:
       - name: Set image ref output
         id: set-image
         run: |
-          echo "image_ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.service }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/$(basename ${{ matrix.service }}):${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
   # -------------------------
   # 6. bump-version
@@ -305,7 +305,8 @@ jobs:
             fi
           fi
 
-          echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.service }}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.service }}:${TAG2}" >> "$GITHUB_OUTPUT"
+          echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/$(basename ${{ matrix.service }}):${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/$(basename ${{ matrix.service }}):${TAG2}" >> "$GITHUB_OUTPUT"
+
 
       - name: Build & Push tags
         uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
