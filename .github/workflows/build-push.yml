@@ -1,223 +1,3 @@
-# name: CICD
-
-# on:
-#   push:
-#     branches:
-#       - main
-#       - prod
-#     paths:
-#       - apps/**
-#     tags:
-#       - "**@[0-9]*.[0-9]*.[0-9]*"
-#   workflow_dispatch:
-#     inputs:
-#       service:
-#         description: "Apps to build"
-#         type: choice
-#         required: true
-#         options:
-#           - apps/drawzy
-#           - apps/ws
-#       version:
-#         description: "Version/tag to use (optional; defaults generating with git describe)"
-#         required: false
-#         type: string
-
-
-# jobs:
-
-#   #Lint Code
-#   lint:
-#     runs-on: ubuntu-24.04
-#     steps:
-#       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
-#       - name: Setup Node
-#         uses: actions/setup-node@v4
-#         with:
-#           node-version: 20
-#       - name: Install Dependencies
-#         run: npm install
-
-#       - name: Run ESLint
-#         run: npm run lint || true
-
-#   #Secret Scan
-#   secret-scan:
-#     runs-on: ubuntu-24.04
-#     steps:
-#       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
-#       - name: Run Gitleaks
-#         uses: gitleaks/gitleaks-action@v2
-#         with:
-#           args: detect --source . --no-banner --redact || true
-#   #Security Scan
-#   codeql:
-#     runs-on: ubuntu-24.04
-#     permissions:
-#       actions: read
-#       contents: read
-#       security-events: write
-#     strategy:
-#       fail-fast: false
-#       matrix:
-#         language: ['javascript']
-#     steps:
-#       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0 
-#       - name: Initialize CodeQL
-#         uses: github/codeql-action/init@v3
-#         with:
-#           languages: ${{ matrix.language }}
-#       - name: Autobuild
-#         uses: github/codeql-action/autobuild@v3
-#       - name: Perform CodeQL Analysis
-#         uses: github/codeql-action/analyze@v3
-#   #Filter Changed Services
-#   filter:
-#     runs-on: ubuntu-24.04
-#     outputs:
-#       services: ${{ steps.set-output.outputs.services }}
-#       environment: ${{ steps.set-output.outputs.environment }}
-
-#     steps:
-#       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
-#         if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main' }}
-
-#       - name: Paths Changes Filter
-#         id: filter
-#         uses: dorny/paths-filter@v3
-#         if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main' }}
-#         with:
-#           token: ${{ secrets.GITHUB_TOKEN }}
-#           filters: .github/utils/file-filters.yaml
-
-#       - name: Set Output
-#         id: set-output
-#         run: |
-#           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-#             echo 'services=["${{ inputs.service }}"]' >> "$GITHUB_OUTPUT"
-#             echo 'environment=development' >> "$GITHUB_OUTPUT"
-
-#           elif [[ "${{ github.ref_type }}" == "tag" ]]; then
-#             tag="${GITHUB_REF_NAME}"
-#             svc="${tag%%@*}"
-#             echo "services=[\"$svc\"]" >> "$GITHUB_OUTPUT"
-#             echo 'environment=production' >> "$GITHUB_OUTPUT"
-
-#           else
-#             echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
-#             echo 'environment=staging' >> "$GITHUB_OUTPUT"
-#           fi
-#   #Build & Push Docker Images
-#   build-push-container-images:
-#     runs-on: ubuntu-24.04
-#     needs:
-#       - filter
-#       - lint
-#       - secret-scan
-#       - codeql
-
-#     if: ${{ needs.filter.outputs.services != '[]' && needs.filter.outputs.services != '' }}
-
-#     strategy:
-#       matrix:
-#         service: ${{ fromJson(needs.filter.outputs.services) }}
-#       fail-fast: false
-
-#     steps:
-#       - name: Checkout Code
-#         uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
-#         with:
-#           # Setting fetch-depth: 0 ensure tags are fetched (so git describe works properly)
-#           fetch-depth: 0
-
-#       - name: Login to Docker Hub
-#         uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
-#         with:
-#           username: ${{ vars.DOCKERHUB_USERNAME }}
-#           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-#       - name: Set up QEMU
-#         uses: docker/setup-qemu-action@05340d1c670183e7caabdb33ae9f1c80fae3b0c2 # v3.6.0
-
-#       - name: Set up Docker Buildx
-#         uses: docker/setup-buildx-action@1583c0f09d26c58c59d25b0eef29792b7ce99d9a # v3.11.1
-#       - name: Select Dockerfile
-#         id: dockerfile
-#         run: |
-#           if [[ "${{ matrix.service }}" == "apps/drawzy" ]]; then
-#             echo "dockerfile=docker/Dockerfile.frontend" >> "$GITHUB_OUTPUT"
-#           elif [[ "${{ matrix.service }}" == "apps/ws" ]]; then
-#             echo "dockerfile=docker/Dockerfile.websocket" >> "$GITHUB_OUTPUT"
-#           else
-#             echo "Unknown service: ${{ matrix.service }}"
-#             exit 1
-#           fi
-#       - name: Lint Dockerfile
-#         uses: hadolint/hadolint-action@v3.1.0
-#         with:
-#           dockerfile: ${{ steps.dockerfile.outputs.dockerfile }}
-#         continue-on-error: true
-#       - name: Compute image tag
-#         id: image-tag
-#         working-directory: ${{ matrix.service }}
-#         env:
-#           ENVIRONMENT: ${{ needs.filter.outputs.environment }}
-#           INPUT_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
-#           SERVICE: ${{ matrix.service }}
-#         run: |
-#           if [[ -n "$INPUT_VERSION" ]]; then
-#             version="$INPUT_VERSION"
-#             image_tag="${SERVICE}:${version}"
-#           elif [[ "$ENVIRONMENT" == "production" ]]; then
-#             version="${GITHUB_REF_NAME}"
-#             image_tag="${SERVICE}:${version}"
-#           else
-#             version=$(git describe --always --dirty --tags)
-#             image_tag="${SERVICE}:${version}"
-#           fi
-
-#           echo "version=${version}" >> "$GITHUB_OUTPUT"
-#           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
-#       - name: Build Docker Image (for scanning)
-#         uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
-#         with:
-#           context: .
-#           file: ${{ steps.dockerfile.outputs.dockerfile }}
-#           tags: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
-#           load: true
-#           platforms: linux/amd64
-#           cache-from: type=gha
-#           cache-to: type=gha,mode=max
-#       - name: Scan Docker Image with Trivy
-#         uses: aquasecurity/trivy-action@0.28.0
-#         with:
-#           image-ref: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
-#           format: table
-#           exit-code: 0
-#           ignore-unfixed: true
-#           vuln-type: 'os,library'
-#           severity: 'CRITICAL,HIGH'
-#       - name: Extract service name
-#         id: service
-#         run: echo "name=$(basename ${{ matrix.service }})" >> $GITHUB_OUTPUT
-#       - name: Build & Push Docker Images
-#         uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
-#         with:
-#           context: .
-#           file: ${{ steps.dockerfile.outputs.dockerfile }}
-#           tags: |
-#             ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ steps.image-tag.outputs.version }}
-#           platforms: linux/amd64
-#           push: true
-#           cache-from: type=gha
-#           cache-to: type=gha,mode=max
-
-
-
-
-
-
-
 name: CICD
 
 on:
@@ -229,7 +9,7 @@ on:
     paths:
       - apps/**
     tags:
-      - "v[0-9]*.[0-9]*.[0-9]*"
+      - "**@[0-9]*.[0-9]*.[0-9]*"
   workflow_dispatch:
     inputs:
       service:
@@ -240,20 +20,15 @@ on:
           - apps/drawzy
           - apps/ws
       version:
-        description: "Version/tag to use (optional; overrides semver generation)"
+        description: "Version/tag to use (optional; defaults generating with git describe)"
         required: false
         type: string
-
 env:
-  DOCKER_REGISTRY: docker.io
-  IMAGE_NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}     # set repo/namespace as a repo var
+  DOCKER_REGISTERY: docker.io
+  IMAGE_NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
   VERSION_FILE: .github/version.txt
 
 jobs:
-
-  # -------------------------
-  # 1. detect-changes
-  # -------------------------
   detect-changes:
     runs-on: ubuntu-24.04
     outputs:
@@ -297,7 +72,7 @@ jobs:
             exit 0
           fi
 
-          if [[ "$REF_NAME" == "main" ]]; then
+          if [[ "$REF_NAME" == "dev" ]]; then
             echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
             echo 'environment=development' >> "$GITHUB_OUTPUT"
             exit 0
@@ -318,98 +93,55 @@ jobs:
           # default to development
           echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
           echo 'environment=development' >> "$GITHUB_OUTPUT"
-
-  # -------------------------
-  # 2. code-quality-checks
-  # (ESLint / TypeScript)
-  # -------------------------
+  #Lint Code
   code-quality-checks:
     runs-on: ubuntu-24.04
     needs: detect-changes
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-      - name: Install PNPM
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Run TypeCheck
-        run: pnpm run typecheck || true
-      - name: Run ESLint
-        run: pnpm run lint || true
+      - name: Install Dependencies
+        run: npm install
 
-  # -------------------------
-  # 3. security-scan
-  # (Gitleaks + CodeQL)
-  # -------------------------
-  security-scan:
-    runs-on: ubuntu-24.04
+      - name: Run ESLint
+        run: npm run lint || true
+
+  #Secret Scan
+  secret-scan:
     needs: detect-changes
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['javascript']
     steps:
-      - uses: actions/checkout@v5
-      - name: Run Gitleaks (Secret Scan)
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+      - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         with:
           args: detect --source . --no-banner --redact || true
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: javascript
-      - name: Autobuild CodeQL
+          languages: ${{ matrix.language }}
+      - name: Autobuild
         uses: github/codeql-action/autobuild@v3
-      - name: Run CodeQL Analysis
+      - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
-
-  # -------------------------
-  # 4. build-and-test
-  # (turborepo build + tests)
-  # -------------------------
-  build-and-test:
-    runs-on: ubuntu-24.04
-    needs:
-      - detect-changes
-      - code-quality-checks
-      - security-scan
-    strategy:
-      matrix:
-        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install dependencies (root)
-        run: pnpm install --frozen-lockfile
-      - name: Build (root/turborepo)
-        run: pnpm turbo run build --if-present
-
-      - name: Build target service
-        working-directory: ${{ matrix.service }}
-        run: |
-          if [ -f package.json ]; then
-            pnpm install --frozen-lockfile
-            pnpm run build --if-present
-            pnpm test --if-present || true
-          else
-            echo "no package.json in ${{ matrix.service }}"
-          fi
-  # -------------------------
-  # 5. build-docker-images
-  # Build local images (for scanning)
-  # -------------------------
   build-docker-images:
     runs-on: ubuntu-24.04
-    needs: build-and-test
+    needs: 
+      - detect-changes
+      - code-quality-checks
+      - secret-scan
     strategy:
       matrix:
         service: ${{ fromJson(needs.detect-changes.outputs.services) }}
@@ -609,3 +341,143 @@ jobs:
       - name: Notify (placeholder)
         run: echo "Send Slack/Teams notification here."
 
+  # #Filter Changed Services
+  # filter:
+  #   runs-on: ubuntu-24.04
+  #   outputs:
+  #     services: ${{ steps.set-output.outputs.services }}
+  #     environment: ${{ steps.set-output.outputs.environment }}
+
+  #   steps:
+  #     - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+  #       if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main' }}
+
+  #     - name: Paths Changes Filter
+  #       id: filter
+  #       uses: dorny/paths-filter@v3
+  #       if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main' }}
+  #       with:
+  #         token: ${{ secrets.GITHUB_TOKEN }}
+  #         filters: .github/utils/file-filters.yaml
+
+  #     - name: Set Output
+  #       id: set-output
+  #       run: |
+  #         if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+  #           echo 'services=["${{ inputs.service }}"]' >> "$GITHUB_OUTPUT"
+  #           echo 'environment=development' >> "$GITHUB_OUTPUT"
+
+  #         elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+  #           tag="${GITHUB_REF_NAME}"
+  #           svc="${tag%%@*}"
+  #           echo "services=[\"$svc\"]" >> "$GITHUB_OUTPUT"
+  #           echo 'environment=production' >> "$GITHUB_OUTPUT"
+
+  #         else
+  #           echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
+  #           echo 'environment=staging' >> "$GITHUB_OUTPUT"
+  #         fi
+  # #Build & Push Docker Images
+  # build-push-container-images:
+  #   runs-on: ubuntu-24.04
+  #   needs:
+  #     - detect-changes
+  #     - code-quality-check
+  #     - secret-scan
+  #     - filter
+
+  #   if: ${{ needs.filter.outputs.services != '[]' && needs.filter.outputs.services != '' }}
+
+  #   strategy:
+  #     matrix:
+  #       service: ${{ fromJson(needs.filter.outputs.services) }}
+  #     fail-fast: false
+
+  #   steps:
+  #     - name: Checkout Code
+  #       uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+  #       with:
+  #         # Setting fetch-depth: 0 ensure tags are fetched (so git describe works properly)
+  #         fetch-depth: 0
+
+  #     - name: Login to Docker Hub
+  #       uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+  #       with:
+  #         username: ${{ vars.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@05340d1c670183e7caabdb33ae9f1c80fae3b0c2 # v3.6.0
+
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@1583c0f09d26c58c59d25b0eef29792b7ce99d9a # v3.11.1
+  #     - name: Select Dockerfile
+  #       id: dockerfile
+  #       run: |
+  #         if [[ "${{ matrix.service }}" == "apps/drawzy" ]]; then
+  #           echo "dockerfile=docker/Dockerfile.frontend" >> "$GITHUB_OUTPUT"
+  #         elif [[ "${{ matrix.service }}" == "apps/ws" ]]; then
+  #           echo "dockerfile=docker/Dockerfile.websocket" >> "$GITHUB_OUTPUT"
+  #         else
+  #           echo "Unknown service: ${{ matrix.service }}"
+  #           exit 1
+  #         fi
+  #     - name: Lint Dockerfile
+  #       uses: hadolint/hadolint-action@v3.1.0
+  #       with:
+  #         dockerfile: ${{ steps.dockerfile.outputs.dockerfile }}
+  #       continue-on-error: true
+  #     - name: Compute image tag
+  #       id: image-tag
+  #       working-directory: ${{ matrix.service }}
+  #       env:
+  #         ENVIRONMENT: ${{ needs.filter.outputs.environment }}
+  #         INPUT_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
+  #         SERVICE: ${{ matrix.service }}
+  #       run: |
+  #         if [[ -n "$INPUT_VERSION" ]]; then
+  #           version="$INPUT_VERSION"
+  #           image_tag="${SERVICE}:${version}"
+  #         elif [[ "$ENVIRONMENT" == "production" ]]; then
+  #           version="${GITHUB_REF_NAME}"
+  #           image_tag="${SERVICE}:${version}"
+  #         else
+  #           version=$(git describe --always --dirty --tags)
+  #           image_tag="${SERVICE}:${version}"
+  #         fi
+
+  #         echo "version=${version}" >> "$GITHUB_OUTPUT"
+  #         echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+  #     - name: Build Docker Image (for scanning)
+  #       uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
+  #       with:
+  #         context: .
+  #         file: ${{ steps.dockerfile.outputs.dockerfile }}
+  #         tags: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
+  #         load: true
+  #         platforms: linux/amd64
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
+  #     - name: Scan Docker Image with Trivy
+  #       uses: aquasecurity/trivy-action@0.28.0
+  #       with:
+  #         image-ref: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
+  #         format: table
+  #         exit-code: 0
+  #         ignore-unfixed: true
+  #         vuln-type: 'os,library'
+  #         severity: 'CRITICAL,HIGH'
+  #     - name: Extract service name
+  #       id: service
+  #       run: echo "name=$(basename ${{ matrix.service }})" >> $GITHUB_OUTPUT
+  #     - name: Build & Push Docker Images
+  #       uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
+  #       with:
+  #         context: .
+  #         file: ${{ steps.dockerfile.outputs.dockerfile }}
+  #         tags: |
+  #           ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.service.outputs.name }}:${{ steps.image-tag.outputs.version }}
+  #         platforms: linux/amd64
+  #         push: true
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
