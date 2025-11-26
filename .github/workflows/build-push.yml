@@ -360,7 +360,7 @@ jobs:
   deploy-to-staging:
     runs-on: ubuntu-24.04
     needs: push-docker-images
-    if: ${{ needs.detect-changes.outputs.environment == 'stage' }}
+    if: ${{ needs.detect-changes.outputs.environment == 'staging' }}
     steps:
       - name: Notify deploy (placeholder)
         run: echo "Deploy to stage would run here."
