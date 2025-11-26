@@ -29,9 +29,7 @@ const assistant = Assistant({
   display: "swap",
 });
 
-
 export const metadata: Metadata = baseMetadata;
-
 
 export default function RootLayout({
   children,

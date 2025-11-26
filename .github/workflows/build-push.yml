@@ -112,7 +112,7 @@ jobs:
   #Secret Scan
   secret-scan:
     runs-on: ubuntu-24.04
-    needs: detect-changes
+    needs: code-quality-checks
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
         with:
@@ -122,7 +122,7 @@ jobs:
   #Security Scan
   codeql:
     runs-on: ubuntu-24.04
-    needs: detect-changes
+    needs: secret-scan
     permissions:
       actions: read
       contents: read
@@ -148,8 +148,6 @@ jobs:
   build-docker-images:
     runs-on: ubuntu-24.04
     needs: 
-      - code-quality-checks
-      - secret-scan
       - codeql
     strategy:
       matrix:
