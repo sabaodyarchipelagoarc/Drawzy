@@ -275,6 +275,7 @@ jobs:
     needs:
       - detect-changes
       - build-docker-images
+      - bump-version
     strategy:
       matrix:
         service: ${{ fromJson(needs.detect-changes.outputs.services) }}
