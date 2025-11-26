@@ -133,10 +133,14 @@ jobs:
         language: ['javascript']
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true  
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         with:
-          args: detect --source . --no-banner --redact || true
+          cmd: detect --source . --no-banner --redact --exit-code 2
+          artifact-name: gitleaks-results-${{ github.run_id }}.zip
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -359,7 +363,13 @@ jobs:
     steps:
       - name: Notify deploy (placeholder)
         run: echo "Deploy to development would run here."
-
+  deploy-to-staging:
+    runs-on: ubuntu-24.04
+    needs: push-docker-images
+    if: ${{ needs.detect-changes.outputs.environment == 'stage' }}
+    steps:
+      - name: Notify deploy (placeholder)
+        run: echo "Deploy to stage would run here."
   # -------------------------
   # 9. deploy-to-production (placeholder)
   # -------------------------
@@ -376,7 +386,7 @@ jobs:
   # -------------------------
   notify-team:
     runs-on: ubuntu-24.04
-    needs: [deploy-to-development, deploy-to-production]
+    needs: [deploy-to-development, deploy-to-production,deploy-to-stage]
     steps:
       - name: Notify (placeholder)
         run: echo "Send Slack/Teams notification here."
