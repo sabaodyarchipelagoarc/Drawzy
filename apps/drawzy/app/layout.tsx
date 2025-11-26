@@ -10,7 +10,6 @@ import { Analytics } from "@vercel/analytics/react"
 
 
 
-
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],

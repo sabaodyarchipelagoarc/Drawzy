@@ -118,8 +118,6 @@ jobs:
           fetch-depth: 0  
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
-        with:
-          upload-artifact: false
   #Security Scan
   codeql:
     runs-on: ubuntu-24.04
@@ -380,3 +378,4 @@ jobs:
     steps:
       - name: Notify deploy (placeholder)
         run: echo "Deploy to production would run here."
+
