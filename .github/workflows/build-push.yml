@@ -218,7 +218,6 @@ jobs:
   bump-version:
     runs-on: ubuntu-24.04
     needs: build-docker-images
-    if: ${{ needs.detect-changes.outputs.environment != 'development' }}
     outputs:
       semver: ${{ steps.set-ver.outputs.semver }}
     steps:
@@ -227,9 +226,13 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-
+      - name: Development - Skip version bump
+        if: ${{ needs.detect-changes.outputs.environment == 'development' }}
+        run: |
+          echo "Development environment — skipping version bump."
       - name: Determine semver (from tag or bump)
         id: set-ver
+        if: ${{ needs.detect-changes.outputs.environment != 'development' }}
         shell: bash
         run: |
           # If this run came from a tag (vX.Y.Z) use that semver
