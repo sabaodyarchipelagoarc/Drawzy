@@ -8,6 +8,9 @@ import { baseMetadata, jsonLdSchema } from "@/utils/metadata";
 import Script from "next/script";
 import { Analytics } from "@vercel/analytics/react"
 
+
+
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],

@@ -119,7 +119,7 @@ jobs:
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         with:
-          cmd: detect --source . --no-banner --redact --exit-code 2
+          upload-artifact: false
   #Security Scan
   codeql:
     runs-on: ubuntu-24.04
