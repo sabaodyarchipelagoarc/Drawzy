@@ -148,6 +148,7 @@ jobs:
   build-docker-images:
     runs-on: ubuntu-24.04
     needs: 
+      - detect-changes
       - codeql
     strategy:
       matrix:
