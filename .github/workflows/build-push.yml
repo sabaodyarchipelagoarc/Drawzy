@@ -277,14 +277,29 @@ jobs:
           fi
 
           VF="${{ env.VERSION_FILE }}"
+
           if [ ! -f "$VF" ]; then
             echo "0.0.0" > "$VF"
           fi
+
           OLD=$(cat "$VF" | tr -d '[:space:]')
           MAJOR=$(echo $OLD | cut -d. -f1)
           MINOR=$(echo $OLD | cut -d. -f2)
           PATCH=$(echo $OLD | cut -d. -f3)
+
+          # Auto-increment semantic version logic
           PATCH=$((PATCH + 1))
+
+          if [ "$PATCH" -ge 10 ]; then
+            PATCH=0
+            MINOR=$((MINOR + 1))
+          fi
+
+          if [ "$MINOR" -ge 10 ]; then
+            MINOR=0
+            MAJOR=$((MAJOR + 1))
+          fi
+
           NEW="${MAJOR}.${MINOR}.${PATCH}"
           echo "$NEW" > "$VF"
 
