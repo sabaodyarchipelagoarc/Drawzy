@@ -72,7 +72,7 @@ jobs:
             exit 0
           fi
 
-          if [[ "$REF_NAME" == "dev" ]]; then
+          if [[ "$REF_NAME" == "main" ]]; then  #if work flow fails change to dev
             echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
             echo 'environment=development' >> "$GITHUB_OUTPUT"
             exit 0
