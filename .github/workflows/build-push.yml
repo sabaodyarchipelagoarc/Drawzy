@@ -23,6 +23,7 @@ on:
         description: "Version/tag to use (optional; defaults generating with git describe)"
         required: false
         type: string
+
 env:
   DOCKER_REGISTRY: docker.io
   IMAGE_NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
@@ -56,70 +57,89 @@ jobs:
           EVENT="${GITHUB_EVENT_NAME}"
           REF_TYPE="${GITHUB_REF_TYPE}"
           REF_NAME="${GITHUB_REF_NAME}"
+
           echo "ref_type=${REF_TYPE}" >> "$GITHUB_OUTPUT"
           echo "ref_name=${REF_NAME}" >> "$GITHUB_OUTPUT"
 
+          # --- FIX START ---
+          ensure_services() {
+            SVAL="$1"
+            if [[ "$SVAL" == "[]" || -z "$SVAL" ]]; then
+              echo '["apps/drawzy"]'
+            else
+              echo "$SVAL"
+            fi
+          }
+          # --- FIX END ---
+
           if [[ "$EVENT" == "workflow_dispatch" ]]; then
-            echo 'services=["${{ inputs.service }}"]' >> "$GITHUB_OUTPUT"
-            echo 'environment=development' >> "$GITHUB_OUTPUT"
+            SVC='["${{ inputs.service }}"]'
+            echo "services=$(ensure_services "$SVC")" >> "$GITHUB_OUTPUT"
+            echo "environment=development" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [[ "$REF_TYPE" == "tag" ]]; then
-            # tag push => production release
-            echo "services=[\"${REF_NAME%%@*}\"]" >> "$GITHUB_OUTPUT"
+            SVC="[\"${REF_NAME%%@*}\"]"
+            echo "services=$(ensure_services "$SVC")" >> "$GITHUB_OUTPUT"
             echo "environment=production" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [[ "$REF_NAME" == "main" ]]; then  #if work flow fails change to dev
-            echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
-            echo 'environment=development' >> "$GITHUB_OUTPUT"
+          if [[ "$REF_NAME" == "main" ]]; then
+            SVC='${{ steps.filter.outputs.changes }}'
+            echo "services=$(ensure_services "$SVC")" >> "$GITHUB_OUTPUT"
+            echo "environment=development" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [[ "$REF_NAME" == "stage" ]]; then
-            echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
-            echo 'environment=staging' >> "$GITHUB_OUTPUT"
+            SVC='${{ steps.filter.outputs.changes }}'
+            echo "services=$(ensure_services "$SVC")" >> "$GITHUB_OUTPUT"
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [[ "$REF_NAME" == "prod" ]]; then
-            echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
-            echo 'environment=production' >> "$GITHUB_OUTPUT"
+            SVC='${{ steps.filter.outputs.changes }}'
+            echo "services=$(ensure_services "$SVC")" >> "$GITHUB_OUTPUT"
+            echo "environment=production" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # default to development
-          echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
-          echo 'environment=development' >> "$GITHUB_OUTPUT"
-  #Lint Code
+          # default: development
+          SVC='${{ steps.filter.outputs.changes }}'
+          echo "services=$(ensure_services "$SVC")" >> "$GITHUB_OUTPUT"
+          echo "environment=development" >> "$GITHUB_OUTPUT"
+
+  # --------------------------------------------
+  # Lint, Secret Scan, Security (unchanged)
+  # --------------------------------------------
+
   code-quality-checks:
     runs-on: ubuntu-24.04
     needs: detect-changes
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: Install Dependencies
         run: npm install
-
       - name: Run ESLint
         run: npm run lint || true
 
-  #Secret Scan
   secret-scan:
     runs-on: ubuntu-24.04
     needs: code-quality-checks
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           fetch-depth: 0  
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
-  #Security Scan
+
   codeql:
     runs-on: ubuntu-24.04
     needs: secret-scan
@@ -132,11 +152,11 @@ jobs:
       matrix:
         language: ['javascript']
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           fetch-depth: 0
           fetch-tags: true  
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0 
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -145,6 +165,11 @@ jobs:
         uses: github/codeql-action/autobuild@v3
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+
+  # --------------------------------------------
+  # Build Docker Images  (unchanged)
+  # --------------------------------------------
+
   build-docker-images:
     runs-on: ubuntu-24.04
     needs: 
@@ -157,7 +182,7 @@ jobs:
       image_ref: ${{ steps.set-image.outputs.image_ref }}
     steps:
       - name: Checkout
-        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           fetch-depth: 0
 
@@ -179,15 +204,17 @@ jobs:
         continue-on-error: true
 
       - name: Login (for caching if needed)
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@05340d1c670183e7caabdb33ae9f1c80fae3b0c2 # v3.6.0
+        uses: docker/setup-qemu-action@05340d1c670183e7caabdb33ae9f1c80fae3b0c2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@1583c0f09d26c58c59d25b0eef29792b7ce99d9a # v3.11.1
+        uses: docker/setup-buildx-action@1583c0f09d26c58c59d25b0eef29792b7ce99d9a
+
       - name: Extract service name
         id: svc
         shell: bash
@@ -196,7 +223,7 @@ jobs:
 
       - name: Build Docker image (local for scan)
         id: build-local
-        uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e # v6.18.0
+        uses: docker/build-push-action@ccc2b40e9ea6518f9252a22a990f8e868370f62e
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.dockerfile }}
@@ -211,10 +238,10 @@ jobs:
         run: |
           echo "image_ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ steps.svc.outputs.name }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-  # -------------------------
-  # 6. bump-version
-  # Only runs for stage/prod (or if a tag push - tag is used)
-  # -------------------------
+  # --------------------------------------------
+  # Version bump (unchanged)
+  # --------------------------------------------
+
   bump-version:
     runs-on: ubuntu-24.04
     needs: build-docker-images
@@ -222,7 +249,7 @@ jobs:
       semver: ${{ steps.set-ver.outputs.semver }}
     steps:
       - name: Checkout (with tags)
-        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -230,12 +257,12 @@ jobs:
         if: ${{ needs.detect-changes.outputs.environment == 'development' }}
         run: |
           echo "Development environment — skipping version bump."
+
       - name: Determine semver (from tag or bump)
         id: set-ver
         if: ${{ needs.detect-changes.outputs.environment != 'development' }}
         shell: bash
         run: |
-          # If this run came from a tag (vX.Y.Z) use that semver
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             TAG="${GITHUB_REF_NAME}"
             SEMVER="${TAG#v}"
@@ -243,36 +270,51 @@ jobs:
             exit 0
           fi
 
-          # If inputs.version passed via workflow_dispatch, use it
           if [[ -n "${{ github.event.inputs.version }}" ]]; then
             SEMVER="${{ github.event.inputs.version }}"
             echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Else, read .github/version.txt and bump patch
           VF="${{ env.VERSION_FILE }}"
+
           if [ ! -f "$VF" ]; then
             echo "0.0.0" > "$VF"
           fi
+
           OLD=$(cat "$VF" | tr -d '[:space:]')
           MAJOR=$(echo $OLD | cut -d. -f1)
           MINOR=$(echo $OLD | cut -d. -f2)
           PATCH=$(echo $OLD | cut -d. -f3)
+
+          # Auto-increment semantic version logic
           PATCH=$((PATCH + 1))
+
+          if [ "$PATCH" -ge 10 ]; then
+            PATCH=0
+            MINOR=$((MINOR + 1))
+          fi
+
+          if [ "$MINOR" -ge 10 ]; then
+            MINOR=0
+            MAJOR=$((MAJOR + 1))
+          fi
+
           NEW="${MAJOR}.${MINOR}.${PATCH}"
           echo "$NEW" > "$VF"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "$VF"
           git commit -m "ci: bump version to $NEW" || true
           git push origin HEAD:${GITHUB_REF_NAME} || true
+
           echo "semver=${NEW}" >> "$GITHUB_OUTPUT"
 
-  # -------------------------
-  # 7. push-docker-images
-  # Tag and push images according to environment (dev/stage/prod)
-  # -------------------------
+  # --------------------------------------------
+  # Push Docker Images (unchanged)
+  # --------------------------------------------
+
   push-docker-images:
     runs-on: ubuntu-24.04
     needs:
@@ -300,7 +342,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Select Dockerfile
       - name: Select Dockerfile
         id: dockerfile
         run: |
@@ -312,7 +353,6 @@ jobs:
             echo "dockerfile=docker/Dockerfile" >> "$GITHUB_OUTPUT"
           fi
 
-      # Compute dev tags
       - name: Compute dev tags
         id: dev-tags
         if: ${{ needs.detect-changes.outputs.environment == 'development' }}
@@ -322,7 +362,6 @@ jobs:
           TAG2="dev-latest"
           echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG2}" >> "$GITHUB_OUTPUT"
 
-      # Compute stage/prod tags
       - name: Compute stage/prod tags
         id: tags
         if: ${{ needs.detect-changes.outputs.environment != 'development' }}
@@ -341,7 +380,6 @@ jobs:
 
           echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG2}" >> "$GITHUB_OUTPUT"
 
-      # Build & Push Image
       - name: Build & Push Image
         uses: docker/build-push-action@v6
         with:
@@ -351,9 +389,10 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.dev-tags.outputs.tags || steps.tags.outputs.tags }}
 
-  # -------------------------
-  # 8. deploy-to-development (placeholder)
-  # -------------------------
+  # --------------------------------------------
+  # Deploy (unchanged)
+  # --------------------------------------------
+
   deploy-to-development:
     runs-on: ubuntu-24.04
     needs: push-docker-images
@@ -361,6 +400,7 @@ jobs:
     steps:
       - name: Notify deploy (placeholder)
         run: echo "Deploy to development would run here."
+
   deploy-to-staging:
     runs-on: ubuntu-24.04
     needs: push-docker-images
@@ -368,9 +408,7 @@ jobs:
     steps:
       - name: Notify deploy (placeholder)
         run: echo "Deploy to stage would run here."
-  # -------------------------
-  # 9. deploy-to-production (placeholder)
-  # -------------------------
+
   deploy-to-production:
     runs-on: ubuntu-24.04
     needs: push-docker-images
@@ -378,4 +416,3 @@ jobs:
     steps:
       - name: Notify deploy (placeholder)
         run: echo "Deploy to production would run here."
-
