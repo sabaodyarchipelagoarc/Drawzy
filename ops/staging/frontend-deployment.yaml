@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment 
+metadata:
+  name: drawzy-frontend
+  namespace: drawzy-staging
+spec:
+  replicas: 2 
+  selector:
+    matchLabels:
+      app: drawzy-frontend
+  template:
+    metadata:
+      labels:
+        app: drawzy-frontend
+    spec:
+      tolerations:
+        - key: "env"
+          operator: "Equal" #the key and value must exactly match with taint #Exits
+          value: "staging"
+          effect: "NoSchedule" #New pods will not be scheduled unless they have a matching toleration #PreferNoSchedule, NoExecute
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution: # pod will only be scheduled on matching nodes. If no matching node exists, the pod stays in Pending state.
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: env
+                    operator: In 
+                    values:
+                      - staging 
+      restartPolicy: Always
+      containers:
+        - name: drawzy-frontend
+          image: ajayt8374/drawzy@sha256:68057b2dad5265e721d814573372dfc198347e3600819dee00e1cb6cc79e552f
+          # imagePullPolicy: Always #  to ensure you're always working with the latest image changes 
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          # requests and limits
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "500Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          # probes
+          livenessProbe:  #liveness probe fails, the pod is restarted
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5 # Start checking 5 seconds after the container starts
+            periodSeconds: 10     # Probe runs every 10 seconds
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10

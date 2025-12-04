@@ -62,8 +62,11 @@ WORKDIR /usr/src/app
 # Build the application with database URL
 RUN DATABASE_URL=${DATABASE_URL} JWT_SECRET=${JWT_SECRET} pnpm run build
 
+WORKDIR /usr/src/app/apps/drawzy
+
 # Expose the port
 EXPOSE 3000
 
+
 # Start the collabydraw application
-CMD ["pnpm", "run", "dev"]
+CMD ["pnpm", "run", "start"]
