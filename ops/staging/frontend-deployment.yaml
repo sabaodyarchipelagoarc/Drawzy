@@ -28,13 +28,33 @@ spec:
                     values:
                       - staging 
       restartPolicy: Always
+      # initContainers:
+      #   - name: wait-for-postgres
+      #     image: busybox:1.35
+      #     command: ['sh', '-c', 'until nc -z postgresdb-svc.drawzy-staging.svc.cluster.local 5432; do echo "Waiting for Postgres..."; sleep 2; done']
       containers:
         - name: drawzy-frontend
-          image: ajayt8374/drawzy@sha256:68057b2dad5265e721d814573372dfc198347e3600819dee00e1cb6cc79e552f
+          image: ajayt8374/drawzy@sha256:1f38c9681d45c76f176ecea0c9e0ae11234bd46668fdc1965b3bcfa6ffa81ad3
           # imagePullPolicy: Always #  to ensure you're always working with the latest image changes 
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: drawzy-secrets
+                  key: JWT_SECRET
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: drawzy-secrets
+                  key: NEXTAUTH_SECRET
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: drawzy-secrets
+                  key: DATABASE_URL
           # requests and limits
           resources:
             requests:
