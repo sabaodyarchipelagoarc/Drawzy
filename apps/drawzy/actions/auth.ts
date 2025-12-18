@@ -4,8 +4,6 @@ import client from '@repo/db/client';
 import bcrypt from "bcrypt";
 import { z } from 'zod';
 
-
-
 export async function signUp(values: z.infer<typeof SignupSchema>) {
     const validatedFields = SignupSchema.safeParse(values);
 
