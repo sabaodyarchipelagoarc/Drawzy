@@ -1,6 +1,5 @@
 'use server'
 
-
 import { SignupSchema } from '@repo/common/types';
 import client from '@repo/db/client';
 import bcrypt from "bcrypt";
