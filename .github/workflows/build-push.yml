@@ -224,9 +224,6 @@ jobs:
         run: |
           echo "image_ref=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ steps.svc.outputs.name }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-  # --------------------------------------------
-  # Version bump (unchanged)
-  # --------------------------------------------
 
   # --------------------------------------------
   # Push Docker Images (unchanged)
