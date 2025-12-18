@@ -13,6 +13,8 @@ spec:
       labels:
         app: drawzy-frontend
     spec:
+      restartPolicy: Always
+
       tolerations:
         - key: "env"
           operator: "Equal" #the key and value must exactly match with taint #Exits
@@ -27,14 +29,31 @@ spec:
                     operator: In 
                     values:
                       - staging 
-      restartPolicy: Always
+
+      
+      securityContext: #Applies to all containers unless overridden
+        runAsUser: 10001 #Container processes run as UID 10001
+        runAsGroup: 30001 #Primary GID for processes
+        fsGroup: 20001  #Mounted volumes owned by this group
+        runAsNonRoot: true #Pod will fail if image runs as root
+        seccompProfile:
+          type: RuntimeDefault
+
       # initContainers:
       #   - name: wait-for-postgres
       #     image: busybox:1.35
-      #     command: ['sh', '-c', 'until nc -z postgresdb-svc.drawzy-staging.svc.cluster.local 5432; do echo "Waiting for Postgres..."; sleep 2; done']
+      #     command: ['sh', '-c', 'until nc -z postgresdb-svc  5432; do echo "Waiting for Postgres..."; sleep 2; done']
       containers:
         - name: drawzy-frontend
-          image: ajayt8374/drawzy@sha256:1f38c9681d45c76f176ecea0c9e0ae11234bd46668fdc1965b3bcfa6ffa81ad3
+          image: ajayt8374/drawzy:1.1.1
+
+          securityContext:  #Overrides or adds container-specific restrictions.
+            allowPrivilegeEscalation: false #Prevents setuid, sudo, etc.
+            readOnlyRootFilesystem: true  #Protects root FS from writes
+            capabilities:
+              drop:
+                - ALL
+          
           # imagePullPolicy: Always #  to ensure you're always working with the latest image changes 
           imagePullPolicy: IfNotPresent
           ports:
@@ -51,10 +70,11 @@ spec:
                   name: drawzy-secrets
                   key: NEXTAUTH_SECRET
             - name: DATABASE_URL
+              # value: postgresql://Drawzy:drawzy0987654321@postgresdb-svc:5432/Drawzy_Staging
               valueFrom:
                 secretKeyRef:
                   name: drawzy-secrets
-                  key: DATABASE_URL
+                  key:  DATABASE_URL
           # requests and limits
           resources:
             requests:
@@ -76,3 +96,13 @@ spec:
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /.next
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}

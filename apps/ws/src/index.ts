@@ -261,6 +261,9 @@ wss.on("connection", function connection(ws, req) {
             conn.rooms.includes(parsedData.roomId)
           );
 
+
+
+          
           if (
             connectionsInRoom.length === 1 &&
             connectionsInRoom[0] &&

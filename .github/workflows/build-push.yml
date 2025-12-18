@@ -4,10 +4,9 @@ on:
   push:
     branches:
       - main
-      - stage
-      - prod
     paths:
       - apps/**
+      - .github/workflows/**
     tags:
       - "**@[0-9]*.[0-9]*.[0-9]*"
   workflow_dispatch:
@@ -93,19 +92,6 @@ jobs:
             exit 0
           fi
 
-          if [[ "$REF_NAME" == "stage" ]]; then
-            SVC='${{ steps.filter.outputs.changes }}'
-            echo "services=$(ensure_services "$SVC")" >> "$GITHUB_OUTPUT"
-            echo "environment=staging" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "$REF_NAME" == "prod" ]]; then
-            SVC='${{ steps.filter.outputs.changes }}'
-            echo "services=$(ensure_services "$SVC")" >> "$GITHUB_OUTPUT"
-            echo "environment=production" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
           # default: development
           SVC='${{ steps.filter.outputs.changes }}'
@@ -242,75 +228,6 @@ jobs:
   # Version bump (unchanged)
   # --------------------------------------------
 
-  bump-version:
-    runs-on: ubuntu-24.04
-    needs: build-docker-images
-    outputs:
-      semver: ${{ steps.set-ver.outputs.semver }}
-    steps:
-      - name: Checkout (with tags)
-        uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - name: Development - Skip version bump
-        if: ${{ needs.detect-changes.outputs.environment == 'development' }}
-        run: |
-          echo "Development environment — skipping version bump."
-
-      - name: Determine semver (from tag or bump)
-        id: set-ver
-        if: ${{ needs.detect-changes.outputs.environment != 'development' }}
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            TAG="${GITHUB_REF_NAME}"
-            SEMVER="${TAG#v}"
-            echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ -n "${{ github.event.inputs.version }}" ]]; then
-            SEMVER="${{ github.event.inputs.version }}"
-            echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          VF="${{ env.VERSION_FILE }}"
-
-          if [ ! -f "$VF" ]; then
-            echo "0.0.0" > "$VF"
-          fi
-
-          OLD=$(cat "$VF" | tr -d '[:space:]')
-          MAJOR=$(echo $OLD | cut -d. -f1)
-          MINOR=$(echo $OLD | cut -d. -f2)
-          PATCH=$(echo $OLD | cut -d. -f3)
-
-          # Auto-increment semantic version logic
-          PATCH=$((PATCH + 1))
-
-          if [ "$PATCH" -ge 10 ]; then
-            PATCH=0
-            MINOR=$((MINOR + 1))
-          fi
-
-          if [ "$MINOR" -ge 10 ]; then
-            MINOR=0
-            MAJOR=$((MAJOR + 1))
-          fi
-
-          NEW="${MAJOR}.${MINOR}.${PATCH}"
-          echo "$NEW" > "$VF"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "$VF"
-          git commit -m "ci: bump version to $NEW" || true
-          git push origin HEAD:${GITHUB_REF_NAME} || true
-
-          echo "semver=${NEW}" >> "$GITHUB_OUTPUT"
-
   # --------------------------------------------
   # Push Docker Images (unchanged)
   # --------------------------------------------
@@ -320,7 +237,6 @@ jobs:
     needs:
       - detect-changes
       - build-docker-images
-      - bump-version
     strategy:
       matrix:
         service: ${{ fromJson(needs.detect-changes.outputs.services) }}
@@ -362,24 +278,6 @@ jobs:
           TAG2="dev-latest"
           echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG2}" >> "$GITHUB_OUTPUT"
 
-      - name: Compute stage/prod tags
-        id: tags
-        if: ${{ needs.detect-changes.outputs.environment != 'development' }}
-        run: |
-          SERVICE_NAME=$(basename "${{ matrix.service }}")
-          SEMVER="${{ needs.bump-version.outputs.semver || '0.0.0' }}"
-          ENV="${{ needs.detect-changes.outputs.environment }}"
-
-          if [[ "$ENV" == "staging" ]]; then
-            TAG1="staging-${SEMVER}"
-            TAG2="staging-latest"
-          else
-            TAG1="${SEMVER}"
-            TAG2="latest"
-          fi
-
-          echo "tags=${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG1},${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${SERVICE_NAME}:${TAG2}" >> "$GITHUB_OUTPUT"
-
       - name: Build & Push Image
         uses: docker/build-push-action@v6
         with:
@@ -400,19 +298,3 @@ jobs:
     steps:
       - name: Notify deploy (placeholder)
         run: echo "Deploy to development would run here."
-
-  deploy-to-staging:
-    runs-on: ubuntu-24.04
-    needs: push-docker-images
-    if: ${{ needs.detect-changes.outputs.environment == 'staging' }}
-    steps:
-      - name: Notify deploy (placeholder)
-        run: echo "Deploy to stage would run here."
-
-  deploy-to-production:
-    runs-on: ubuntu-24.04
-    needs: push-docker-images
-    if: ${{ needs.detect-changes.outputs.environment == 'production' }}
-    steps:
-      - name: Notify deploy (placeholder)
-        run: echo "Deploy to production would run here."
